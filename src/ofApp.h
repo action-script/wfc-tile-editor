@@ -22,6 +22,7 @@ public:
 private:
     AppMode mode = MODE_EDITOR;
     bool mouseDragging = false;
+    bool splitObjGroups = false;
 
     ofEasyCam cam;
     ofLight keyLight, fillLight, backLight;

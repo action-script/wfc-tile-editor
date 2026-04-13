@@ -84,7 +84,7 @@ void EditorMode::draw(ofEasyCam& cam, ofLight& keyLight, ofLight& fillLight, ofL
     int y = ofGetHeight() - 100;
     ofDrawBitmapString("Click face to select, click another to connect/disconnect", 10, y);
     ofDrawBitmapString("Right-click tile to cycle symmetry type", 10, y + 16);
-    ofDrawBitmapString("ESC/D: deselect  |  S: save XML  |  C: clear all connections", 10, y + 32);
+    ofDrawBitmapString("ESC/D: deselect  |  S: save XML  |  C: clear all connections  |  G: load groups", 10, y + 32);
 }
 
 void EditorMode::drawModel(int tileIndex, ofMaterial& material) {

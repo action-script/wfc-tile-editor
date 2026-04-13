@@ -2,6 +2,65 @@
 
 // --- OBJ Loader ---
 
+namespace {
+
+void fillFlatNormalsIfMissing(ofVboMesh& mesh) {
+    if (mesh.getNumNormals() != 0 || mesh.getNumVertices() == 0) return;
+    auto& verts = mesh.getVertices();
+    for (size_t i = 0; i + 2 < verts.size(); i += 3) {
+        glm::vec3 n = glm::normalize(glm::cross(verts[i+1] - verts[i], verts[i+2] - verts[i]));
+        mesh.addNormal(n);
+        mesh.addNormal(n);
+        mesh.addNormal(n);
+    }
+}
+
+// Parse a single `f` line into the target mesh, resolving against the shared
+// positions/normals/texcoords tables. OBJ indices are 1-based and may be
+// negative (relative to current end).
+void parseFaceLine(std::istringstream& iss, ofVboMesh& mesh,
+                   const std::vector<glm::vec3>& positions,
+                   const std::vector<glm::vec3>& normals,
+                   const std::vector<glm::vec2>& texcoords) {
+    struct FaceVert { int v = 0, vt = 0, vn = 0; };
+    std::vector<FaceVert> faceVerts;
+
+    std::string token;
+    while (iss >> token) {
+        FaceVert fv;
+        std::replace(token.begin(), token.end(), '/', ' ');
+        std::istringstream tiss(token);
+        tiss >> fv.v;
+        if (tiss.peek() != EOF) {
+            tiss >> fv.vt;
+            if (tiss.peek() != EOF) tiss >> fv.vn;
+        }
+        auto resolve = [](int idx, int count) {
+            if (idx > 0) return idx - 1;
+            if (idx < 0) return count + idx;
+            return -1;
+        };
+        fv.v  = resolve(fv.v,  (int)positions.size());
+        fv.vt = resolve(fv.vt, (int)texcoords.size());
+        fv.vn = resolve(fv.vn, (int)normals.size());
+        faceVerts.push_back(fv);
+    }
+
+    for (size_t i = 1; i + 1 < faceVerts.size(); i++) {
+        for (int idx : {0, (int)i, (int)(i + 1)}) {
+            auto& fv = faceVerts[idx];
+            if (fv.v >= 0 && fv.v < (int)positions.size())
+                mesh.addVertex(positions[fv.v]);
+            if (fv.vn >= 0 && fv.vn < (int)normals.size())
+                mesh.addNormal(normals[fv.vn]);
+            if (fv.vt >= 0 && fv.vt < (int)texcoords.size())
+                mesh.addTexCoord(texcoords[fv.vt]);
+        }
+    }
+}
+
+} // namespace
+
 bool ObjModelLoader::load(const std::string& path, ofVboMesh& mesh) {
     ofFile file(path);
     if (!file.exists()) return false;
@@ -35,55 +94,80 @@ bool ObjModelLoader::load(const std::string& path, ofVboMesh& mesh) {
             iss >> t.x >> t.y;
             texcoords.push_back(t);
         } else if (prefix == "f") {
-            // Parse face - supports v, v/vt, v/vt/vn, v//vn
-            struct FaceVert { int v = -1, vt = -1, vn = -1; };
-            std::vector<FaceVert> faceVerts;
-
-            std::string token;
-            while (iss >> token) {
-                FaceVert fv;
-                std::replace(token.begin(), token.end(), '/', ' ');
-                std::istringstream tiss(token);
-                tiss >> fv.v;
-                if (tiss.peek() != EOF) {
-                    // Check if next is empty (v//vn case handled by space replacement)
-                    tiss >> fv.vt;
-                    if (tiss.peek() != EOF) tiss >> fv.vn;
-                }
-                // OBJ indices are 1-based
-                fv.v--;
-                if (fv.vt > 0) fv.vt--;
-                if (fv.vn > 0) fv.vn--;
-                faceVerts.push_back(fv);
-            }
-
-            // Triangulate fan
-            for (size_t i = 1; i + 1 < faceVerts.size(); i++) {
-                for (int idx : {0, (int)i, (int)(i + 1)}) {
-                    auto& fv = faceVerts[idx];
-                    if (fv.v >= 0 && fv.v < (int)positions.size())
-                        mesh.addVertex(positions[fv.v]);
-                    if (fv.vn >= 0 && fv.vn < (int)normals.size())
-                        mesh.addNormal(normals[fv.vn]);
-                    if (fv.vt >= 0 && fv.vt < (int)texcoords.size())
-                        mesh.addTexCoord(texcoords[fv.vt]);
-                }
-            }
+            parseFaceLine(iss, mesh, positions, normals, texcoords);
         }
     }
 
-    // Generate normals if none were loaded
-    if (mesh.getNumNormals() == 0 && mesh.getNumVertices() > 0) {
-        auto& verts = mesh.getVertices();
-        for (size_t i = 0; i + 2 < verts.size(); i += 3) {
-            glm::vec3 n = glm::normalize(glm::cross(verts[i+1] - verts[i], verts[i+2] - verts[i]));
-            mesh.addNormal(n);
-            mesh.addNormal(n);
-            mesh.addNormal(n);
-        }
-    }
-
+    fillFlatNormalsIfMissing(mesh);
     return mesh.getNumVertices() > 0;
+}
+
+bool ObjModelLoader::loadGroups(const std::string& path,
+                                std::vector<std::pair<std::string, ofVboMesh>>& outGroups) {
+    outGroups.clear();
+    ofFile file(path);
+    if (!file.exists()) return false;
+
+    std::vector<glm::vec3> positions;
+    std::vector<glm::vec3> normals;
+    std::vector<glm::vec2> texcoords;
+
+    // Start with a single anonymous group; if an `o`/`g` appears before any
+    // face we'll rename it; if faces land in it first, it stays anonymous.
+    outGroups.emplace_back("", ofVboMesh{});
+    outGroups.back().second.setMode(OF_PRIMITIVE_TRIANGLES);
+    bool currentHasFaces = false;
+
+    auto startGroup = [&](const std::string& name) {
+        // Reuse the current group if it hasn't accumulated any faces yet.
+        if (!currentHasFaces) {
+            outGroups.back().first = name;
+            return;
+        }
+        outGroups.emplace_back(name, ofVboMesh{});
+        outGroups.back().second.setMode(OF_PRIMITIVE_TRIANGLES);
+        currentHasFaces = false;
+    };
+
+    ofBuffer buffer = ofBufferFromFile(path);
+    for (auto& rawLine : buffer.getLines()) {
+        std::string line = ofTrimFront(rawLine);
+        if (line.empty() || line[0] == '#') continue;
+
+        std::istringstream iss(line);
+        std::string prefix;
+        iss >> prefix;
+
+        if (prefix == "v") {
+            glm::vec3 v; iss >> v.x >> v.y >> v.z;
+            positions.push_back(v);
+        } else if (prefix == "vn") {
+            glm::vec3 n; iss >> n.x >> n.y >> n.z;
+            normals.push_back(n);
+        } else if (prefix == "vt") {
+            glm::vec2 t; iss >> t.x >> t.y;
+            texcoords.push_back(t);
+        } else if (prefix == "o" || prefix == "g") {
+            std::string name;
+            std::getline(iss, name);
+            name = ofTrim(name);
+            // Ignore the default "(null)" group some exporters emit.
+            if (name == "(null)" || name == "default") name = "";
+            if (!name.empty()) startGroup(name);
+        } else if (prefix == "f") {
+            parseFaceLine(iss, outGroups.back().second, positions, normals, texcoords);
+            currentHasFaces = true;
+        }
+    }
+
+    // Drop any trailing empty groups and flat-shade missing normals.
+    outGroups.erase(std::remove_if(outGroups.begin(), outGroups.end(),
+        [](const std::pair<std::string, ofVboMesh>& g) {
+            return g.second.getNumVertices() == 0;
+        }), outGroups.end());
+    for (auto& g : outGroups) fillFlatNormalsIfMissing(g.second);
+
+    return !outGroups.empty();
 }
 
 std::vector<std::string> ObjModelLoader::getSupportedExtensions() const {

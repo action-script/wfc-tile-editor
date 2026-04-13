@@ -15,7 +15,7 @@ void ofApp::setup() {
     material.setSpecularColor(ofColor(50));
     material.setAmbientColor(ofColor(40));
 
-    tileManager.loadModelsFromDirectory("");
+    tileManager.loadModelsFromDirectory("", splitObjGroups);
     tileManager.loadXml("data.xml");
     tileManager.layoutTiles(4.0);
 
@@ -64,6 +64,7 @@ void ofApp::draw() {
     ofDrawBitmapStringHighlight(modeStr, ofGetWidth() / 2 - 80, 20,
         ofColor(0, 0, 0, 180), ofColor(255));
     ofDrawBitmapString("TAB: switch mode", ofGetWidth() / 2 - 60, 38);
+
 }
 
 void ofApp::mousePressed(int x, int y, int button) {
@@ -88,6 +89,17 @@ void ofApp::mouseReleased(int x, int y, int button) {
 void ofApp::keyPressed(int key) {
     if (key == OF_KEY_TAB) {
         mode = (mode == MODE_EDITOR) ? MODE_SIMULATE : MODE_EDITOR;
+        return;
+    }
+
+    if (key == 'g' || key == 'G') {
+        splitObjGroups = !splitObjGroups;
+        ofLogNotice("ofApp") << "Split OBJ groups: " << (splitObjGroups ? "ON" : "OFF");
+        tileManager.loadModelsFromDirectory("", splitObjGroups);
+        tileManager.loadXml("data.xml");
+        tileManager.layoutTiles(4.0);
+        editor.setup(&tileManager);
+        simulator.setup(&tileManager);
         return;
     }
 

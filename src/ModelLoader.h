@@ -14,6 +14,11 @@ class ObjModelLoader : public IModelLoader {
 public:
     bool load(const std::string& path, ofVboMesh& mesh) override;
     std::vector<std::string> getSupportedExtensions() const override;
+
+    // Load OBJ split by group/object (`g`/`o`) into separate named meshes.
+    // If the file has no group markers, returns a single unnamed group ("").
+    static bool loadGroups(const std::string& path,
+                           std::vector<std::pair<std::string, ofVboMesh>>& outGroups);
 };
 
 // PLY file loader (ofVboMesh natively supports PLY)

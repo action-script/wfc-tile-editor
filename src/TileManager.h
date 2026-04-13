@@ -32,7 +32,7 @@ struct Connection {
 
 class TileManager {
 public:
-    void loadModelsFromDirectory(const std::string& directory);
+    void loadModelsFromDirectory(const std::string& directory, bool splitObjGroups = false);
     void layoutTiles(float spacing);
 
     bool addConnection(int tileA, CubeFace faceA, int tileB, CubeFace faceB);

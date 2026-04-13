@@ -96,7 +96,7 @@ HRuleKey canonicalizeHRule(const std::string& lName, int lRot, const std::string
 
 } // anonymous namespace
 
-void TileManager::loadModelsFromDirectory(const std::string& directory) {
+void TileManager::loadModelsFromDirectory(const std::string& directory, bool splitObjGroups) {
     tiles.clear();
     uniformScale = 0.0f;
 
@@ -109,10 +109,50 @@ void TileManager::loadModelsFromDirectory(const std::string& directory) {
     dir.sort();
 
     for (auto& file : dir) {
-        Tile tile;
-        tile.name = ofFilePath::removeExt(file.getFileName());
+        std::string baseName = ofFilePath::removeExt(file.getFileName());
         // Skip any file named "empty" — we add that ourselves at the end
-        if (tile.name == "empty") continue;
+        if (baseName == "empty") continue;
+
+        std::string ext = ofFilePath::getFileExt(file.getFileName());
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+        if (splitObjGroups && ext == "obj") {
+            std::vector<std::pair<std::string, ofVboMesh>> groups;
+            if (!ObjModelLoader::loadGroups(file.getAbsolutePath(), groups)) {
+                ofLogWarning("TileManager") << "Failed to load: " << file.getFileName();
+                continue;
+            }
+            // If the file only contains one group (or none), use the filename
+            // as the tile name — behaves like the non-split path.
+            if (groups.size() == 1) {
+                Tile tile;
+                tile.name = baseName;
+                tile.mesh = std::move(groups[0].second);
+                ofLogNotice("TileManager") << "Loaded: " << tile.name;
+                tiles.push_back(std::move(tile));
+            } else {
+                for (auto& g : groups) {
+                    Tile tile;
+                    if (g.first.empty()) {
+                        tile.name = baseName + "_part" + ofToString(&g - groups.data());
+                    } else {
+                        // Strip exporter-added suffix like "_Cube.029" — keep
+                        // everything up to (but not including) the last '_'.
+                        auto pos = g.first.find_last_of('_');
+                        tile.name = (pos == std::string::npos || pos == 0)
+                                        ? g.first
+                                        : g.first.substr(0, pos);
+                    }
+                    tile.mesh = std::move(g.second);
+                    ofLogNotice("TileManager") << "Loaded: " << tile.name;
+                    tiles.push_back(std::move(tile));
+                }
+            }
+            continue;
+        }
+
+        Tile tile;
+        tile.name = baseName;
         if (loaderFactory.load(file.getAbsolutePath(), tile.mesh)) {
             ofLogNotice("TileManager") << "Loaded: " << tile.name;
             tiles.push_back(std::move(tile));

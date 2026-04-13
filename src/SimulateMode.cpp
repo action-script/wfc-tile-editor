@@ -14,13 +14,18 @@ void SimulateMode::setup(TileManager* tm) {
     // Auto-detect tile size from model dimensions
     float rawScale = tileManager->getRawUniformScale();
 
-    params.setName("Simulate");
-    params.add(simWidth.set("Width", 8, 1, 20));
-    params.add(simHeight.set("Height", 4, 1, 20));
-    params.add(simLength.set("Length", 8, 1, 20));
-    params.add(simTileSize.set("Tile Size", rawScale, 0.1f, rawScale * 4.0f));
-    gui.setup(params);
-    gui.setPosition(10, 10);
+    if (params.size() == 0) {
+        params.setName("Simulate");
+        params.add(simWidth.set("Width", 8, 1, 20));
+        params.add(simHeight.set("Height", 4, 1, 20));
+        params.add(simLength.set("Length", 8, 1, 20));
+        params.add(simTileSize.set("Tile Size", rawScale, 0.1f, rawScale * 4.0f));
+        gui.setup(params);
+        gui.setPosition(10, 10);
+    } else {
+        simTileSize.set(rawScale);
+        simTileSize.setMax(rawScale * 4.0f);
+    }
 }
 
 void SimulateMode::update() {
